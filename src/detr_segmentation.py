@@ -2,6 +2,8 @@ import math
 import cv2
 
 from PIL import Image
+from numpy import dtype, number
+import numpy
 import requests
 import matplotlib.pyplot as plt
 import argparse
@@ -15,6 +17,7 @@ from torch import nn
 from torch._C import JITException
 from torchvision.models import resnet50
 import torchvision.transforms as T
+from torchvision.transforms.functional import crop
 torch.set_grad_enabled(False)
 
 parser = argparse.ArgumentParser()
@@ -80,6 +83,15 @@ def rescale_bboxes(out_bbox, size):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
     b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
+    #print(b)
+    return b
+
+def rescale_bboxes_cropped(out_bbox, size, bottom_left):
+    img_w, img_h = size
+    b = box_cxcywh_to_xyxy(out_bbox)
+    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
+    b = b + torch.tensor([bottom_left[0], bottom_left[1], bottom_left[0], bottom_left[1]], dtype=torch.float32)
+    #print(b)
     return b
 
 backSub = cv2.createBackgroundSubtractorMOG2()
@@ -126,17 +138,37 @@ while True:
     if frame is None:
         break
     
+    top_left = (495, 182)
+    crop_size = (280, 125)
+    frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
+    #cv2.imwrite("/tmp/cropped.png", frame_cropped)
+
     im = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    im_cropped = Image.fromarray(cv2.cvtColor(frame_cropped, cv2.COLOR_BGR2RGB))
 
     img = transform(im).unsqueeze(0)
+    img_cropped = transform(im_cropped).unsqueeze(0)
     outputs = model(img)
+    outputs_cropped = model(img_cropped)
+
 
     probas = outputs['pred_logits'].softmax(-1)[0, :, :-1]
-    keep = probas.max(-1).values > 0.7
+    probas_cropped = outputs_cropped['pred_logits'].softmax(-1)[0, :, :-1]
+    keep = probas.max(-1).values > 0.9 #0.99 good
+    keep_cropped = probas_cropped.max(-1).values > 0.6
 
+    #print(outputs['pred_boxes'][0, keep])
     bboxes_scaled = rescale_bboxes(outputs['pred_boxes'][0, keep], (width, height))
-    cv2.imwrite("../segmentation_results/detr/masks/frame"+str(frame_number)+".png", process(backSub.apply(frame)))
-    plot_results(frame, probas[keep], bboxes_scaled, frame_number)
+    bboxes_scaled_cropped = rescale_bboxes_cropped(outputs_cropped['pred_boxes'][0, keep_cropped], crop_size, top_left)
+
+    #print(bboxes_scaled)
+    #print(bboxes_scaled_cropped)
+
+    bboxes_total = torch.cat((bboxes_scaled, bboxes_scaled_cropped), dim=0)
+    probas_keep_total = torch.cat((probas[keep], probas_cropped[keep_cropped]))
+    #print(total)
+    #cv2.imwrite("../segmentation_results/detr/masks/frame"+str(frame_number)+".png", process(backSub.apply(frame)))
+    plot_results(frame, probas_keep_total, bboxes_total, frame_number)
 
 
     frame_number += 1
