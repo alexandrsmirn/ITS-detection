@@ -1,10 +1,9 @@
 import re
 import cv2
 import torch
+import pandas
 
 import argparse
-
-from torchvision.transforms.functional import crop
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', type=str, default='traffic.mp4')
@@ -13,7 +12,9 @@ args = parser.parse_args()
 save_dir = '../segmentation_results/yolo/new/'
 save_path = save_dir + 'frames/'
 txt_path  = save_dir + 'labels/'
-mask_path = save_dir + 'masks/' 
+mask_path = save_dir + 'masks/'
+
+TRANSPORT = ['bicycle', 'car', 'motorcycle', 'bus', 'truck']
 
 def erosion(src):
     erosion_size = 3
@@ -33,9 +34,6 @@ def dilatation(src):
 
 def process(src):
     return dilatation(erosion(src))
-
-
-TRANSPORT = ['bicycle', 'car', 'motorcycle', 'bus', 'truck']
 
 
 def write_boxes(results, frame, frame_number):
@@ -64,7 +62,7 @@ def write_boxes(results, frame, frame_number):
     yaml_writer.endWriteStruct()
     yaml_writer.release()
 
-    cv2.imwrite(save_path + frame_name + '.png', frame)
+    #cv2.imwrite(save_path + frame_name + '.png', frame)
     cv2.imshow('window_name', frame)
     cv2.waitKey(10)
 
@@ -93,34 +91,20 @@ while True:
     if frame is None:
         break
     
-    #top_left = (495, 182)
-    #crop_size = (280, 125)
-    #frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
+    top_left = (495, 182)
+    crop_size = (280, 125)
+    frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
 
     # OpenCV image (BGR to RGB)
     img = frame[..., ::-1]
-    #img_cropped = frame_cropped[..., ::-1]
+    img_cropped = frame_cropped[..., ::-1]
 
     outputs = model(img, size=640).pandas().xyxy[0]
-    #outputs.print()
-    #outputs_cropped = model(img_cropped, size=640).pandas().xyxy[0]
+    outputs_cropped = model(img_cropped, size=640).pandas().xyxy[0]
 
-    #probas = outputs['pred_logits'].softmax(-1)[0, :, :-1]
-    #probas_cropped = outputs_cropped['pred_logits'].softmax(-1)[0, :, :-1]
-    #keep = probas.max(-1).values > 0.9 #0.99 good
-    #keep_cropped = probas_cropped.max(-1).values > 0.6
-
-    #(c_x, c_y) = (width / crop_size[0], height / crop_size[1])
-    #outputs_cropped[['xmin', 'ymin', 'xmax', 'ymax']] *= (c_x, c_y, c_x, c_y)
-    #
-    #print(outputs_cropped)
-    #
-    #outputs_cropped[['xmin', 'xmax']] += top_left[0]
-    #outputs_cropped[['xmin', 'xmax']] += top_left[1]
-    #
-    #outputs.append(outputs_cropped, ignore_index=True)
+    outputs_cropped[['xmin', 'xmax']] += top_left[0]
+    outputs_cropped[['ymin', 'ymax']] += top_left[1]
 
     write_mask(frame)
-    write_boxes(outputs, frame, frame_number)
-
+    write_boxes(outputs.append(outputs_cropped, ignore_index=True), frame, frame_number)
     frame_number += 1
