@@ -7,6 +7,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', type=str, default='traffic.mp4')
+parser.add_argument('--demo', type=bool, default=False)
 args = parser.parse_args()
 
 save_dir = '../segmentation_results/yolo/new/'
@@ -62,9 +63,10 @@ def write_boxes(results, frame, frame_number):
     yaml_writer.endWriteStruct()
     yaml_writer.release()
 
-    #cv2.imwrite(save_path + frame_name + '.png', frame)
-    cv2.imshow('window_name', frame)
-    cv2.waitKey(10)
+    cv2.imwrite(save_path + frame_name + '.png', frame)
+    #cv2.imshow('window_name', frame)
+    #cv2.waitKey(10)
+    return frame
 
 
 backSub = cv2.createBackgroundSubtractorMOG2()
@@ -75,7 +77,9 @@ backSub.setShadowValue(0)
 def write_mask(frame):
     frame_name = 'frame_' + str(frame_number) + '.png'
     mask = backSub.apply(frame)
-    cv2.imwrite(mask_path + frame_name, process(mask))
+    processed_mask = process(mask)
+    cv2.imwrite(mask_path + frame_name, processed_mask)
+    return processed_mask
 
 
 capture = cv2.VideoCapture(args.input)
@@ -105,6 +109,12 @@ while True:
     outputs_cropped[['xmin', 'xmax']] += top_left[0]
     outputs_cropped[['ymin', 'ymax']] += top_left[1]
 
-    write_mask(frame)
-    write_boxes(outputs.append(outputs_cropped, ignore_index=True), frame, frame_number)
+    mask = write_mask(frame)
+    frame = write_boxes(outputs.append(outputs_cropped, ignore_index=True), frame, frame_number)
+    mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    if (args.demo):
+        cv2.imshow('qwe', cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0))
+    else:
+        cv2.imshow('qwe', frame)
+    cv2.waitKey(10)
     frame_number += 1
