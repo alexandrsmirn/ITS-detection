@@ -1,0 +1,8 @@
+yolov5/
+prepared_datasets/
+segmentation_results/
+substraction_results/
+venv/
+traffic*
+*.png
+*.pt
