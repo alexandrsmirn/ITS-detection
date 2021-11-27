@@ -85,6 +85,10 @@ def write_mask(frame):
 capture = cv2.VideoCapture(args.input)
 width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))   # float `width`
 height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))  # float `height`
+fps = capture.get(cv2.CAP_PROP_FPS)
+fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+
+#video_writer = cv2.VideoWriter("../prepared_datasets/demo.mp4", fourcc, fps, (width, height))
 
 # Model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
@@ -97,23 +101,30 @@ while True:
     
     top_left = (495, 182)
     crop_size = (280, 125)
+    bot_right = (top_left[0] + crop_size[0], top_left[1] + crop_size[1])
     frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
 
     # OpenCV image (BGR to RGB)
     img = frame[..., ::-1]
     img_cropped = frame_cropped[..., ::-1]
 
-    outputs = model(img, size=640).pandas().xyxy[0]
-    outputs_cropped = model(img_cropped, size=640).pandas().xyxy[0]
+    res = model([img, img_cropped], size=640)
+    outputs = res.pandas().xyxy[0]
+    outputs_cropped = res.pandas().xyxy[1]
+    #outputs_cropped = model(img_cropped, size=640).pandas().xyxy[0]
 
     outputs_cropped[['xmin', 'xmax']] += top_left[0]
     outputs_cropped[['ymin', 'ymax']] += top_left[1]
 
     mask = write_mask(frame)
     frame = write_boxes(outputs.append(outputs_cropped, ignore_index=True), frame, frame_number)
-    mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    #frame = write_boxes(outputs, frame, frame_number)
+    cv2.rectangle(frame, top_left, bot_right, (255, 0, 0))
     if (args.demo):
-        cv2.imshow('qwe', cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0))
+        mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+        output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
+        cv2.imshow('qwe', output_frame)
+        #video_writer.write(output_frame)
     else:
         cv2.imshow('qwe', frame)
     cv2.waitKey(10)
