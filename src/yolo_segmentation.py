@@ -2,6 +2,7 @@ import re
 import cv2
 import torch
 import pandas
+import numpy as np
 
 import argparse
 
@@ -32,10 +33,26 @@ def dilatation(src):
     dilatation_dst = cv2.dilate(src, element, iterations=10)
     return dilatation_dst
 
+def opening(src):
+    element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+    return cv2.morphologyEx(src, cv2.MORPH_OPEN, element)
+
+def closing(src):
+    element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    return cv2.morphologyEx(src, cv2.MORPH_CLOSE, element, iterations=5)
 
 def process(src):
-    return dilatation(erosion(src))
-    #return closing(opening(src))
+    #return dilatation(erosion(src))
+    return closing(opening(src))
+
+def fill_holes(mask):
+    mask_floodfill = mask.copy()
+    h, w = mask.shape[:2]
+    mask2 = np.zeros((h+2, w+2), np.uint8)
+    cv2.floodFill(mask_floodfill, mask2, (0,0), 255)
+    mask_floodfill_inv = cv2.bitwise_not(mask_floodfill)
+
+    return mask | mask_floodfill_inv
 
 def box_filter(results, iou_treshold=0.45, iosa_treshold=0.5, iou_frist=True, select_bigger=True):
     def IoU(box1, box2):
@@ -179,8 +196,8 @@ backSub.setShadowValue(0)
 def write_mask(frame):
     frame_name = 'frame_' + str(frame_number) + '.png'
     mask = backSub.apply(frame)
-    processed_mask = process(mask)
-    cv2.imwrite(mask_path + frame_name, processed_mask)
+    processed_mask = fill_holes(process(mask))
+    #cv2.imwrite(mask_path + frame_name, processed_mask)
     return processed_mask
 
 
