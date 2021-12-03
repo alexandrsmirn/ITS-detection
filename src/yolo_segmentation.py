@@ -226,22 +226,42 @@ while True:
     bot_right = (top_left[0] + crop_size[0], top_left[1] + crop_size[1])
     frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
 
+    top_left2 = (314, 261)
+    crop_size2 = (637, 324)
+    bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
+    frame_cropped2 = frame[top_left2[1] : top_left2[1] + crop_size2[1], top_left2[0] : top_left2[0] + crop_size2[0]]
+
     # OpenCV image (BGR to RGB)
     img = frame[..., ::-1]
     img_cropped = frame_cropped[..., ::-1]
+    img_cropped2 = frame_cropped2[..., ::-1]
 
-    res = model([img, img_cropped], size=640)
+    res = model([img, img_cropped, img_cropped2], size=640)
     outputs = res.pandas().xyxy[0]
     outputs_cropped = res.pandas().xyxy[1]
-    #outputs_cropped = model(img_cropped, size=640).pandas().xyxy[0]
+    outputs_cropped2 = res.pandas().xyxy[2]
+
+    outputs.insert(7, "crop", 0)
+    outputs_cropped.insert(7, "crop", 1)
+    outputs_cropped2.insert(7, "crop", 2)
 
     outputs_cropped[['xmin', 'xmax']] += top_left[0]
     outputs_cropped[['ymin', 'ymax']] += top_left[1]
 
+    outputs_cropped2[['xmin', 'xmax']] += top_left2[0]
+    outputs_cropped2[['ymin', 'ymax']] += top_left2[1]
+
+    outputs = outputs.append(outputs_cropped, ignore_index=True)
+    outputs = outputs.append(outputs_cropped2, ignore_index=True)
+
+    #outputs = outputs_cropped.append(outputs_cropped2, ignore_index=True)
+    #outputs = outputs_cropped2
+
     mask = write_mask(frame)
-    frame = write_boxes(outputs.append(outputs_cropped, ignore_index=True), frame, frame_number)
+    frame = write_boxes(outputs, frame, frame_number)
     #frame = write_boxes(outputs, frame, frame_number)
     cv2.rectangle(frame, top_left, bot_right, (255, 0, 0))
+    cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
