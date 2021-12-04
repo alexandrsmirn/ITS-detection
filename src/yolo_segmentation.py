@@ -247,20 +247,21 @@ model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 #model.multi_label = True
 model.classes = [1, 2, 3, 5, 7]
 
+top_left1 = (495, 182)
+crop_size1 = (280, 125)
+bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
+
+top_left2 = (314, 261)
+crop_size2 = (637, 324)
+bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
+
 frame_number = 0
 while True:
     ret, frame = capture.read()
     if frame is None:
         break
     
-    top_left1 = (495, 182)
-    crop_size1 = (280, 125)
-    bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
     frame_cropped1 = frame[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
-
-    top_left2 = (314, 261)
-    crop_size2 = (637, 324)
-    bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
     frame_cropped2 = frame[top_left2[1] : top_left2[1] + crop_size2[1], top_left2[0] : top_left2[0] + crop_size2[0]]
 
     # OpenCV image (BGR to RGB)
@@ -269,6 +270,7 @@ while True:
     img_cropped2 = frame_cropped2[..., ::-1]
 
     res = model([img, img_cropped1, img_cropped2], size=640)
+
     outputs = res.pandas().xyxy[0]
     outputs_cropped1 = res.pandas().xyxy[1]
     outputs_cropped2 = res.pandas().xyxy[2]
