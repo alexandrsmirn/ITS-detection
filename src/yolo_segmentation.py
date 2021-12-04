@@ -54,7 +54,7 @@ def fill_holes(mask):
 
     return mask | mask_floodfill_inv
 
-def box_filter(results, iou_treshold=0.45, iosa_treshold=0.5, iou_frist=True, select_bigger=True):
+def box_filter(results, iou_treshold=2, iosa_treshold=0.4, iou_frist=True, select_bigger=False): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
     def IoU(box1, box2):
         a1, b1 = box1
         a2, b2 = box2
@@ -107,8 +107,21 @@ def box_filter(results, iou_treshold=0.45, iosa_treshold=0.5, iou_frist=True, se
 
         return area1 < area2, intersection_area / smallest_area
 
+    def is_on_border(box, box_crop, eps):
+        if box_crop == 1:
+            return abs(box[0][0] - top_left1[0]) < eps or \
+                abs(box[0][1] - top_left1[1]) < eps or \
+                abs(box[1][0] - bot_right1[0]) < eps or \
+                abs(box[1][1] - bot_right1[1]) < eps
+        elif box_crop == 2:
+            return abs(box[0][0] - top_left2[0]) < eps or \
+                abs(box[0][1] - top_left2[1]) < eps or \
+                abs(box[1][0] - bot_right2[0]) < eps or \
+                abs(box[1][1] - bot_right2[1]) < eps
+
     keep = []
     while (not results.empty):
+        #choose the box with the highest confidence
         max_conf = 0
         max_conf_idx = 0
         for row in results.itertuples(index = True): #index?????
@@ -116,20 +129,27 @@ def box_filter(results, iou_treshold=0.45, iosa_treshold=0.5, iou_frist=True, se
             conf  = row[5] 
             if (conf > max_conf):
                 box = [(round(row[1]), round(row[2])), (round(row[3]), round(row[4]))]
+                box_crop = row[8]
                 max_conf_idx = idx
         results.drop(labels = max_conf_idx, axis = 0, inplace=True)
 
+        #remove boxes that intersects with the choosen box
         drop_indices = []
         for row in results.itertuples(index = True):
             box_to_check = [(round(row[1]), round(row[2])), (round(row[3]), round(row[4]))]
+            box_to_check_crop = row[8]
             if iou_frist:
                 if IoU(box, box_to_check) > iou_treshold:
                     drop_indices.append(row[0])
                 else:
                     is_first_smaller, iosa = IoSA(box, box_to_check)
                     if iosa > iosa_treshold:
-                        if is_first_smaller and select_bigger:
-                            box = box_to_check
+                        if box_crop == 2 and box_to_check_crop == 0:
+                            if is_on_border(box, box_crop, 20):
+                                box = box_to_check
+                        elif box_crop == 0 and box_to_check_crop == 2:
+                            if not is_on_border(box_to_check, box_to_check_crop, 20):
+                                box = box_to_check
                         drop_indices.append(row[0])
             else:
                 is_first_smaller, iosa = IoSA(box, box_to_check)
@@ -176,7 +196,8 @@ def write_boxes(results, frame, frame_number):
     #cv2.imshow('window_name', frame)
     #cv2.waitKey(10)
 
-    boxes = box_filter(results, 0.7, 0.4)
+    #boxes = box_filter(results, 0.7, 0.4) !!!!!!!good
+    boxes = box_filter(results)
 
     for box in boxes:
         xmin = box[0][0] #returns integer
@@ -221,10 +242,10 @@ while True:
     if frame is None:
         break
     
-    top_left = (495, 182)
-    crop_size = (280, 125)
-    bot_right = (top_left[0] + crop_size[0], top_left[1] + crop_size[1])
-    frame_cropped = frame[top_left[1] : top_left[1] + crop_size[1], top_left[0] : top_left[0] + crop_size[0]]
+    top_left1 = (495, 182)
+    crop_size1 = (280, 125)
+    bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
+    frame_cropped1 = frame[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
 
     top_left2 = (314, 261)
     crop_size2 = (637, 324)
@@ -233,34 +254,32 @@ while True:
 
     # OpenCV image (BGR to RGB)
     img = frame[..., ::-1]
-    img_cropped = frame_cropped[..., ::-1]
+    img_cropped1 = frame_cropped1[..., ::-1]
     img_cropped2 = frame_cropped2[..., ::-1]
 
-    res = model([img, img_cropped, img_cropped2], size=640)
+    res = model([img, img_cropped1, img_cropped2], size=640)
     outputs = res.pandas().xyxy[0]
-    outputs_cropped = res.pandas().xyxy[1]
+    outputs_cropped1 = res.pandas().xyxy[1]
     outputs_cropped2 = res.pandas().xyxy[2]
 
     outputs.insert(7, "crop", 0)
-    outputs_cropped.insert(7, "crop", 1)
+    outputs_cropped1.insert(7, "crop", 1)
     outputs_cropped2.insert(7, "crop", 2)
 
-    outputs_cropped[['xmin', 'xmax']] += top_left[0]
-    outputs_cropped[['ymin', 'ymax']] += top_left[1]
+    outputs_cropped1[['xmin', 'xmax']] += top_left1[0]
+    outputs_cropped1[['ymin', 'ymax']] += top_left1[1]
 
     outputs_cropped2[['xmin', 'xmax']] += top_left2[0]
     outputs_cropped2[['ymin', 'ymax']] += top_left2[1]
 
-    outputs = outputs.append(outputs_cropped, ignore_index=True)
+    outputs = outputs.append(outputs_cropped1, ignore_index=True)
     outputs = outputs.append(outputs_cropped2, ignore_index=True)
 
-    #outputs = outputs_cropped.append(outputs_cropped2, ignore_index=True)
-    #outputs = outputs_cropped2
 
     mask = write_mask(frame)
     frame = write_boxes(outputs, frame, frame_number)
     #frame = write_boxes(outputs, frame, frame_number)
-    cv2.rectangle(frame, top_left, bot_right, (255, 0, 0))
+    cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
     cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
