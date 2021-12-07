@@ -54,7 +54,7 @@ def fill_holes(mask):
 
     return mask | mask_floodfill_inv
 
-def box_filter(results, iou_treshold=0.45, iosa_treshold=0.4, iou_frist=True, select_bigger=False): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
+def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
     def IoU(box1, box2):
         a1, b1 = box1
         a2, b2 = box2
@@ -115,7 +115,6 @@ def box_filter(results, iou_treshold=0.45, iosa_treshold=0.4, iou_frist=True, se
                 abs(box[1][1] - bot_right1[1]) < eps
         elif box_crop == 2:
             return abs(box[0][0] - top_left2[0]) < eps or \
-                abs(box[0][1] - top_left2[1]) < eps or \
                 abs(box[1][0] - bot_right2[0]) < eps or \
                 abs(box[1][1] - bot_right2[1]) < eps
 
@@ -138,38 +137,31 @@ def box_filter(results, iou_treshold=0.45, iosa_treshold=0.4, iou_frist=True, se
         for row in results.itertuples(index = True):
             box_to_check = [(round(row[1]), round(row[2])), (round(row[3]), round(row[4]))]
             box_to_check_crop = row[8]
-            if iou_frist:
-                if IoU(box, box_to_check) > 2:
-                    drop_indices.append(row[0])
-                else:
-                    is_first_smaller, iosa = IoSA(box, box_to_check)
-                    if iosa > iosa_treshold:
-                        if box_crop == 2 and box_to_check_crop == 0:
-                            if is_on_border(box, box_crop, 20):
-                                box = box_to_check
-                        elif box_crop == 0 and box_to_check_crop == 2:
-                            if not is_on_border(box_to_check, box_to_check_crop, 20):
-                                box = box_to_check
-                        elif box_crop == 1 and box_to_check_crop == 2:
-                            if is_on_border(box, box_crop, 2):
-                                box = box_to_check
-                        elif box_crop == 2 and box_to_check_crop == 1:
-                            if not is_on_border(box_to_check, box_to_check_crop, 2):
-                                box = box_to_check
-                        elif box_crop == 0 and box_to_check == 1:
-                            box = box_to_check
-                        elif box_crop == box_to_check_crop:
-                            if not IoU(box, box_to_check) > iou_treshold:
-                                continue
-                        drop_indices.append(row[0])
-            else:
-                is_first_smaller, iosa = IoSA(box, box_to_check)
-                if iosa > iosa_treshold:
-                    if is_first_smaller and select_bigger:
+
+            iou = IoU(box, box_to_check)
+            is_first_smaller, iosa = IoSA(box, box_to_check)
+            if iosa > iosa_treshold:
+                if box_crop == 2 and box_to_check_crop == 3:
+                    if is_on_border(box, box_crop, 10):
                         box = box_to_check
-                    drop_indices.append(row[0])
-                elif IoU(box, box_to_check) > iou_treshold:
-                    drop_indices.append(row[0])
+                elif box_crop == 3 and box_to_check_crop == 2:
+                    if not is_on_border(box_to_check, box_to_check_crop, 10):
+                        box = box_to_check
+                elif box_crop == 1 and box_to_check_crop == 2:
+                    if is_on_border(box, box_crop, 2):
+                        box = box_to_check
+                elif box_crop == 2 and box_to_check_crop == 1:
+                    if not is_on_border(box_to_check, box_to_check_crop, 2):
+                        box = box_to_check
+                elif box_crop == 3 and box_to_check_crop == 1:
+                    box = box_to_check
+                elif box_crop == box_to_check_crop:
+                    if iou < iou_treshold: #or iosa < 0.7:
+                        continue
+                    elif not is_first_smaller:
+                        box = box_to_check
+
+                drop_indices.append(row[0])
 
         keep.append(box)
         results.drop(labels = drop_indices, axis = 0, inplace=True)
@@ -275,7 +267,7 @@ while True:
     outputs_cropped1 = res.pandas().xyxy[1]
     outputs_cropped2 = res.pandas().xyxy[2]
 
-    outputs.insert(7, "crop", 0)
+    outputs.insert(7, "crop", 3)
     outputs_cropped1.insert(7, "crop", 1)
     outputs_cropped2.insert(7, "crop", 2)
 
