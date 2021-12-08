@@ -11,7 +11,8 @@ parser.add_argument('--input', type=str, default='traffic.mp4')
 parser.add_argument('--demo', type=bool, default=False)
 args = parser.parse_args()
 
-save_dir = '../segmentation_results/yolo/new/'
+#save_dir = '../segmentation_results/yolo/new/'
+save_dir = '/tmp/segmentation_results/yolo/new/'
 save_path = save_dir + 'frames/'
 txt_path  = save_dir + 'labels/'
 mask_path = save_dir + 'masks/'
@@ -209,6 +210,9 @@ def write_boxes(results, frame, frame_number):
         ymax = box[1][1]
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0))
 
+    cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
+    cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
+    cv2.imwrite(save_path + frame_name + '.png', frame)
     return frame
 
 
@@ -281,11 +285,11 @@ while True:
     outputs = outputs.append(outputs_cropped2, ignore_index=True)
 
 
-    mask = write_mask(frame)
+    #mask = write_mask(frame)
     frame = write_boxes(outputs, frame, frame_number)
     #frame = write_boxes(outputs, frame, frame_number)
-    cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
-    cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
+    #cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
+    #cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
