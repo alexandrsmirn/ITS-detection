@@ -11,9 +11,8 @@ parser.add_argument('--input', type=str, default='traffic.mp4')
 parser.add_argument('--demo', type=bool, default=False)
 args = parser.parse_args()
 
-#save_dir = '../segmentation_results/yolo/new/'
-save_dir = '/tmp/segmentation_results/yolo/new/'
-save_path = save_dir + 'frames/'
+save_dir = '../segmentation_results/yolo/new/'
+frame_path = save_dir + 'frames/'
 txt_path  = save_dir + 'labels/'
 mask_path = save_dir + 'masks/'
 
@@ -172,33 +171,35 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
 
 def write_boxes(results, frame, frame_number):
     frame_name = 'frame_' + str(frame_number)
-    #yaml_writer = cv2.FileStorage(txt_path + frame_name + '.yml', cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
-    #yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
-    #for row in results.itertuples(index = False):
-    #    cls = row[6]   
-    #    conf  = row[4] 
-    #    if (cls in TRANSPORT and conf>0.35):
-    #        xmin = round(row[0]) #returns integer
-    #        ymin = round(row[1]) 
-    #        xmax = round(row[2]) 
-    #        ymax = round(row[3]) 
-    #
-    #        #yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
-    #        #yaml_writer.write("class", cls)
-    #        #yaml_writer.write("x_min", xmin)
-    #        #yaml_writer.write("y_min", ymin)
-    #        #yaml_writer.write("x_max", xmax)
-    #        #yaml_writer.write("y_max", ymax)
-    #        #yaml_writer.endWriteStruct()
-    #
-    #        cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0))
-    #        cv2.putText(frame, cls, (xmin, ymin), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0))
-    #yaml_writer.endWriteStruct()
-    #yaml_writer.release()
 
-    #cv2.imwrite(save_path + frame_name + '.png', frame)
-    #cv2.imshow('window_name', frame)
-    #cv2.waitKey(10)
+    boxes = box_filter(results)
+    yaml_writer = cv2.FileStorage(txt_path + frame_name + '.yml', cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
+    yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
+
+    for box in boxes:
+        xmin = box[0][0] #returns integer
+        ymin = box[0][1] 
+        xmax = box[1][0] 
+        ymax = box[1][1]
+
+        yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
+        yaml_writer.write("x_min", xmin)
+        yaml_writer.write("y_min", ymin)
+        yaml_writer.write("x_max", xmax)
+        yaml_writer.write("y_max", ymax)
+        yaml_writer.endWriteStruct()
+
+        cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0))
+
+    yaml_writer.endWriteStruct()
+    yaml_writer.release()
+
+    cv2.imwrite(frame_path + frame_name + '.png', frame)
+    return frame
+
+
+def show_boxes(results, frame, frame_number):
+    frame_name = 'frame_' + str(frame_number)
 
     #boxes = box_filter(results, 0.7, 0.4) !!!!!!!good
     boxes = box_filter(results)
@@ -212,7 +213,7 @@ def write_boxes(results, frame, frame_number):
 
     cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
     cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
-    cv2.imwrite(save_path + frame_name + '.png', frame)
+    cv2.imwrite('/tmp/segmentation_results/yolo/new/frames/' + frame_name + '.png', frame)
     return frame
 
 
@@ -221,11 +222,11 @@ backSub.setHistory(3000)
 backSub.setShadowValue(0)
 
 
-def write_mask(frame):
+def write_mask(frame, frame_number):
     frame_name = 'frame_' + str(frame_number) + '.png'
     mask = backSub.apply(frame)
     processed_mask = fill_holes(process(mask))
-    #cv2.imwrite(mask_path + frame_name, processed_mask)
+    cv2.imwrite(mask_path + frame_name, processed_mask)
     return processed_mask
 
 
@@ -240,7 +241,7 @@ fourcc = cv2.VideoWriter_fourcc(*'MJPG')
 # Model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 #model = torch.hub.load('ultralytics/yolov5', 'yolov5n6')
-#model.multi_label = True
+
 model.classes = [1, 2, 3, 5, 7]
 
 top_left1 = (495, 182)
@@ -285,11 +286,9 @@ while True:
     outputs = outputs.append(outputs_cropped2, ignore_index=True)
 
 
-    #mask = write_mask(frame)
+    mask = write_mask(frame, frame_number)
     frame = write_boxes(outputs, frame, frame_number)
-    #frame = write_boxes(outputs, frame, frame_number)
-    #cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
-    #cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
+    
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
