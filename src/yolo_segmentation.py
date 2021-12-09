@@ -148,25 +148,30 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                 if box_crop == 2 and box_to_check_crop == 3:
                     if is_on_border(box, box_crop, 10):
                         box = box_to_check
+                        box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 3 and box_to_check_crop == 2:
                     if not is_on_border(box_to_check, box_to_check_crop, 10):
                         box = box_to_check
+                        box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 1 and box_to_check_crop == 2:
                     if is_on_border(box, box_crop, 2):
                         box = box_to_check
+                        box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 2 and box_to_check_crop == 1:
                     if not is_on_border(box_to_check, box_to_check_crop, 2):
                         box = box_to_check
+                        box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 3 and box_to_check_crop == 1:
                     box = box_to_check
+                    box_crop = box_to_check_crop
                     box_conf = row[5]
                     box_cl = row[7]
                 elif box_crop == box_to_check_crop:
@@ -174,6 +179,7 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                         continue
                     elif not is_first_smaller:
                         box = box_to_check
+                        box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
 
