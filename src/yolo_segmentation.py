@@ -119,16 +119,20 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                 abs(box[1][1] - bot_right2[1]) < eps
 
     keep = []
+    confs = []
+    classes = []
     while (not results.empty):
         #choose the box with the highest confidence
         max_conf = 0
         max_conf_idx = 0
         for row in results.itertuples(index = True): #index?????
             idx = row[0]   
-            conf  = row[5] 
-            if (conf > max_conf):
+            curr_conf = row[5]
+            if (curr_conf > max_conf):
                 box = [(round(row[1]), round(row[2])), (round(row[3]), round(row[4]))]
                 box_crop = row[8]
+                box_conf  = row[5] 
+                box_cl = row[7]
                 max_conf_idx = idx
         results.drop(labels = max_conf_idx, axis = 0, inplace=True)
 
@@ -144,45 +148,61 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                 if box_crop == 2 and box_to_check_crop == 3:
                     if is_on_border(box, box_crop, 10):
                         box = box_to_check
+                        box_conf = row[5]
+                        box_cl = row[7]
                 elif box_crop == 3 and box_to_check_crop == 2:
                     if not is_on_border(box_to_check, box_to_check_crop, 10):
                         box = box_to_check
+                        box_conf = row[5]
+                        box_cl = row[7]
                 elif box_crop == 1 and box_to_check_crop == 2:
                     if is_on_border(box, box_crop, 2):
                         box = box_to_check
+                        box_conf = row[5]
+                        box_cl = row[7]
                 elif box_crop == 2 and box_to_check_crop == 1:
                     if not is_on_border(box_to_check, box_to_check_crop, 2):
                         box = box_to_check
+                        box_conf = row[5]
+                        box_cl = row[7]
                 elif box_crop == 3 and box_to_check_crop == 1:
                     box = box_to_check
+                    box_conf = row[5]
+                    box_cl = row[7]
                 elif box_crop == box_to_check_crop:
                     if iou < iou_treshold: #or iosa < 0.7:
                         continue
                     elif not is_first_smaller:
                         box = box_to_check
+                        box_conf = row[5]
+                        box_cl = row[7]
 
                 drop_indices.append(row[0])
 
         keep.append(box)
+        confs.append(box_conf)
+        classes.append(box_cl)
         results.drop(labels = drop_indices, axis = 0, inplace=True)
 
-    return keep
+    return keep, confs, classes
 
 
 def write_boxes(results, frame, frame_number):
     frame_name = 'frame_' + str(frame_number)
 
-    boxes = box_filter(results)
     yaml_writer = cv2.FileStorage(txt_path + frame_name + '.yml', cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
     yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
 
-    for box in boxes:
+    boxes, confs, classes = box_filter(results)
+    for box, conf, cl in zip(boxes, confs, classes):
         xmin = box[0][0] #returns integer
         ymin = box[0][1] 
         xmax = box[1][0] 
         ymax = box[1][1]
 
         yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
+        yaml_writer.write("conf", conf)
+        yaml_writer.write("class", cl)
         yaml_writer.write("x_min", xmin)
         yaml_writer.write("y_min", ymin)
         yaml_writer.write("x_max", xmax)
