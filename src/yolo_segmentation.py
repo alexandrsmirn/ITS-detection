@@ -39,7 +39,7 @@ def opening(src):
 
 def closing(src):
     element = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    return cv2.morphologyEx(src, cv2.MORPH_CLOSE, element, iterations=5)
+    return cv2.morphologyEx(src, cv2.MORPH_CLOSE, element, iterations=6)
 
 def process(src):
     #return dilatation(erosion(src))
@@ -193,7 +193,7 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
     return keep, confs, classes
 
 
-def write_boxes(results, frame, frame_number):
+def write_boxes(results, frame, frame_number, last_box_id):
     frame_name = 'frame_' + str(frame_number)
 
     yaml_writer = cv2.FileStorage(txt_path + frame_name + '.yml', cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
@@ -207,6 +207,7 @@ def write_boxes(results, frame, frame_number):
         ymax = box[1][1]
 
         yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
+        yaml_writer.write("id", last_box_id)
         yaml_writer.write("conf", conf)
         yaml_writer.write("class", cl)
         yaml_writer.write("x_min", xmin)
@@ -215,13 +216,14 @@ def write_boxes(results, frame, frame_number):
         yaml_writer.write("y_max", ymax)
         yaml_writer.endWriteStruct()
 
+        last_box_id += 1
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), (0, 255, 0))
 
     yaml_writer.endWriteStruct()
     yaml_writer.release()
 
     cv2.imwrite(frame_path + frame_name + '.png', frame)
-    return frame
+    return frame, last_box_id
 
 
 def show_boxes(results, frame, frame_number):
@@ -279,6 +281,7 @@ crop_size2 = (637, 324)
 bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
 
 frame_number = 0
+last_box_id = 0
 while True:
     ret, frame = capture.read()
     if frame is None:
@@ -313,7 +316,7 @@ while True:
 
 
     mask = write_mask(frame, frame_number)
-    frame = write_boxes(outputs, frame, frame_number)
+    frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
     
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
