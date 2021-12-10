@@ -129,11 +129,14 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
             idx = row[0]   
             curr_conf = row[5]
             if (curr_conf > max_conf):
+                max_conf = curr_conf
+                max_conf_idx = idx
+
                 box = [(round(row[1]), round(row[2])), (round(row[3]), round(row[4]))]
                 box_crop = row[8]
-                box_conf  = row[5] 
+                box_conf  = curr_conf 
                 box_cl = row[7]
-                max_conf_idx = idx
+
         results.drop(labels = max_conf_idx, axis = 0, inplace=True)
 
         #remove boxes that intersects with the choosen box
@@ -222,7 +225,7 @@ def write_boxes(results, frame, frame_number, last_box_id):
     yaml_writer.endWriteStruct()
     yaml_writer.release()
 
-    cv2.imwrite(frame_path + frame_name + '.png', frame)
+    cv2.imwrite(frame_path + frame_name + '.jpg', frame)
     return frame, last_box_id
 
 
@@ -230,7 +233,7 @@ def show_boxes(results, frame, frame_number):
     frame_name = 'frame_' + str(frame_number)
 
     #boxes = box_filter(results, 0.7, 0.4) !!!!!!!good
-    boxes = box_filter(results)
+    boxes, _, _ = box_filter(results)
 
     for box in boxes:
         xmin = box[0][0] #returns integer
@@ -241,7 +244,7 @@ def show_boxes(results, frame, frame_number):
 
     cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
     cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
-    cv2.imwrite('/tmp/segmentation_results/yolo/new/frames/' + frame_name + '.png', frame)
+    cv2.imwrite('/tmp/segmentation_results/yolo/new/frames/' + frame_name + '.jpg', frame)
     return frame
 
 
