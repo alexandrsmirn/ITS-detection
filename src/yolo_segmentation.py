@@ -244,7 +244,7 @@ def show_boxes(results, frame, frame_number):
 
     cv2.rectangle(frame, top_left1, bot_right1, (255, 0, 0))
     cv2.rectangle(frame, top_left2, bot_right2, (0, 0, 255))
-    cv2.imwrite('/tmp/segmentation_results/yolo/new/frames/' + frame_name + '.jpg', frame)
+    cv2.imwrite('/tmp/segmentation_results/yolo/new/frames/' + frame_name + '.png', frame)
     return frame
 
 
@@ -257,7 +257,7 @@ def write_mask(frame, frame_number):
     frame_name = 'frame_' + str(frame_number) + '.png'
     mask = backSub.apply(frame)
     processed_mask = fill_holes(process(mask))
-    cv2.imwrite(mask_path + frame_name, processed_mask)
+    #cv2.imwrite(mask_path + frame_name, processed_mask)
     return processed_mask
 
 
@@ -267,7 +267,7 @@ height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))  # float `height`
 fps = capture.get(cv2.CAP_PROP_FPS)
 fourcc = cv2.VideoWriter_fourcc(*'MJPG')
 
-#video_writer = cv2.VideoWriter("../prepared_datasets/demo.mp4", fourcc, fps, (width, height))
+#video_writer = cv2.VideoWriter("../prepared_datasets/demo_carla.mp4", fourcc, fps, (width, height))
 
 # Model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
@@ -275,18 +275,19 @@ model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 
 model.classes = [1, 2, 3, 5, 7]
 
-top_left1 = (495, 182)
-crop_size1 = (280, 125)
+top_left1 = (500, 0)
+crop_size1 = (250, 115)
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
 
-top_left2 = (314, 261)
-crop_size2 = (637, 324)
+top_left2 = (230, 0)
+crop_size2 = (780, 420)
 bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
 
-frame_number = 0
+frame_number = 21800
 last_box_id = 0
 while True:
-    ret, frame = capture.read()
+    frame = cv2.imread('../prepared_datasets/Carla/from_2_camera/foo-' + str(frame_number) + '.png')
+    #ret, frame = capture.read()
     if frame is None:
         break
     
@@ -319,13 +320,14 @@ while True:
 
 
     mask = write_mask(frame, frame_number)
-    frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
+    #frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
+    frame = show_boxes(outputs, frame, frame_number)
     
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
         cv2.imshow('qwe', output_frame)
-        #video_writer.write(output_frame)
+        video_writer.write(output_frame)
     else:
         cv2.imshow('qwe', frame)
     cv2.waitKey(10)
