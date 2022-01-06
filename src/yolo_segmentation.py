@@ -11,7 +11,7 @@ parser.add_argument('--input', type=str, default='traffic.mp4')
 parser.add_argument('--demo', type=bool, default=False)
 args = parser.parse_args()
 
-save_dir = '../segmentation_results/yolo/new/'
+save_dir = '../generated_datasets/carla-new/from_2_camera/'
 frame_path = save_dir + 'frames/'
 txt_path  = save_dir + 'labels/'
 mask_path = save_dir + 'masks/'
@@ -49,7 +49,7 @@ def fill_holes(mask):
     mask_floodfill = mask.copy()
     h, w = mask.shape[:2]
     mask2 = np.zeros((h+2, w+2), np.uint8)
-    cv2.floodFill(mask_floodfill, mask2, (0,0), 255)
+    cv2.floodFill(mask_floodfill, mask2, (0,100), 255) #временно поменяли координату от которой заполняем
     mask_floodfill_inv = cv2.bitwise_not(mask_floodfill)
 
     return mask | mask_floodfill_inv
@@ -110,7 +110,6 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
     def is_on_border(box, box_crop, eps):
         if box_crop == 1:
             return abs(box[0][0] - top_left1[0]) < eps or \
-                abs(box[0][1] - top_left1[1]) < eps or \
                 abs(box[1][0] - bot_right1[0]) < eps or \
                 abs(box[1][1] - bot_right1[1]) < eps
         elif box_crop == 2:
@@ -161,13 +160,13 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 1 and box_to_check_crop == 2:
-                    if is_on_border(box, box_crop, 2):
+                    if is_on_border(box, box_crop, 5):
                         box = box_to_check
                         box_crop = box_to_check_crop
                         box_conf = row[5]
                         box_cl = row[7]
                 elif box_crop == 2 and box_to_check_crop == 1:
-                    if not is_on_border(box_to_check, box_to_check_crop, 2):
+                    if not is_on_border(box_to_check, box_to_check_crop, 5):
                         box = box_to_check
                         box_crop = box_to_check_crop
                         box_conf = row[5]
@@ -178,7 +177,7 @@ def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5,
                     box_conf = row[5]
                     box_cl = row[7]
                 elif box_crop == box_to_check_crop:
-                    if iou < iou_treshold: #or iosa < 0.7:
+                    if iou < iou_treshold and iosa < 0.99:
                         continue
                     elif not is_first_smaller:
                         box = box_to_check
@@ -248,16 +247,18 @@ def show_boxes(results, frame, frame_number):
     return frame
 
 
-backSub = cv2.createBackgroundSubtractorMOG2()
+#backSub = cv2.createBackgroundSubtractorMOG2()
+backSub = cv2.createBackgroundSubtractorKNN()
 backSub.setHistory(3000)
 backSub.setShadowValue(0)
+#backSub.setShadowThreshold(0.05)
 
 
 def write_mask(frame, frame_number):
     frame_name = 'frame_' + str(frame_number) + '.png'
     mask = backSub.apply(frame)
     processed_mask = fill_holes(process(mask))
-    #cv2.imwrite(mask_path + frame_name, processed_mask)
+    cv2.imwrite(mask_path + frame_name, processed_mask)
     return processed_mask
 
 
@@ -275,21 +276,32 @@ model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 
 model.classes = [1, 2, 3, 5, 7]
 
-top_left1 = (500, 0)
-crop_size1 = (250, 115)
+#top_left1 = (515, 0) ##for cam_0
+#crop_size1 = (250, 125)
+
+top_left1 = (495, 0)
+crop_size1 = (285, 125)
+
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
 
-top_left2 = (230, 0)
-crop_size2 = (780, 420)
+#top_left2 = (255, 50)
+#crop_size2 = (800, 480)
+
+top_left2 = (230, 50)
+crop_size2 = (870, 480)
 bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
 
-frame_number = 21800
+frame_number = 6237
+#frame_number = 7100
+#frame_number = 6800
 last_box_id = 0
 while True:
-    frame = cv2.imread('../prepared_datasets/Carla/from_2_camera/foo-' + str(frame_number) + '.png')
+    frame = cv2.imread('../prepared_datasets/Carla-final/from_2_camera/frame-' + str(frame_number) + '.png')
     #ret, frame = capture.read()
     if frame is None:
-        break
+        frame_number += 1
+        continue
+        #break
     
     frame_cropped1 = frame[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
     frame_cropped2 = frame[top_left2[1] : top_left2[1] + crop_size2[1], top_left2[0] : top_left2[0] + crop_size2[0]]
@@ -320,14 +332,16 @@ while True:
 
 
     mask = write_mask(frame, frame_number)
-    #frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
-    frame = show_boxes(outputs, frame, frame_number)
+    frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
+    #frame = show_boxes(outputs, frame, frame_number)
+
+    #mask = threading.Thread(target=write_mask, args=(frame, frame_number))
     
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
         cv2.imshow('qwe', output_frame)
-        video_writer.write(output_frame)
+        #video_writer.write(output_frame)
     else:
         cv2.imshow('qwe', frame)
     cv2.waitKey(10)
