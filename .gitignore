@@ -2,7 +2,9 @@ yolov5/
 prepared_datasets/
 segmentation_results/
 substraction_results/
+generated_datasets/
 venv/
 traffic*
 *.png
 *.pt
+*.jpg
