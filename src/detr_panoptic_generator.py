@@ -82,7 +82,7 @@ def rescale_bboxes(out_bbox, size):
     return b
 
 
-def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
+def box_filter(boxes, confs, classes, crops, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
     def IoU(box1, box2):
         a1x, a1y, b1x, b1y = box1
         a2x, a2y, b2x, b2y = box2
@@ -103,6 +103,37 @@ def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa
         IoU = intersection_area / union_area
         return IoU
 
+    def IoSA(box1, box2):
+        a1x, a1y, b1x, b1y = box1
+        a2x, a2y, b2x, b2y = box2
+
+        area1 = (b1x - a1x) * (b1y - a1y)
+        area2 = (b2x - a2x) * (b2y - a2y)
+
+        xleft = max(a1x, a2x)
+        ytop = max(a1y, a2y)
+        xright = min(b1x, b2x)
+        ybot = min(b1y, b2y)
+
+        w = max(0, xright - xleft)
+        h = max(0, ybot - ytop)
+
+        intersection_area = w * h
+        smallest_area = min(area1, area2)
+
+        return area1 < area2, intersection_area / smallest_area
+
+    def is_on_border(box, box_crop, eps):
+        if box_crop == 1:
+            return abs(box[0] - top_left1[0]) < eps or \
+                abs(box[1] - top_left1[1]) < eps or \
+                abs(box[2] - bot_right1[0]) < eps or \
+                abs(box[3] - bot_right1[1]) < eps
+        #elif box_crop == 2:
+        #    return abs(box[0] - top_left2[0]) < eps or \
+        #        abs(box[2] - bot_right2[0]) < eps or \
+        #        abs(box[3] - bot_right2[1]) < eps
+
     keep = []
     confs_keep = []
     classes_keep = []
@@ -110,7 +141,7 @@ def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa
         #choose the box with the highest confidence
         max_conf = 0
         max_conf_idx = 0
-        for idx, (curr_box, curr_conf, curr_cl) in enumerate(zip(boxes, confs, classes)):
+        for idx, (curr_box, curr_conf, curr_cl, curr_crop) in enumerate(zip(boxes, confs, classes, crops)):
             if (curr_conf > max_conf):
                 max_conf = curr_conf
                 max_conf_idx = idx
@@ -118,16 +149,34 @@ def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa
                 box = curr_box
                 box_conf  = curr_conf
                 box_cl = curr_cl
+                box_crop = curr_crop
 
         del boxes[max_conf_idx]
         del confs[max_conf_idx]
         del classes[max_conf_idx]
+        del crops[max_conf_idx]
 
         #remove boxes that intersects with the choosen box
         drop_indices = []
-        for idx, curr_box in enumerate(boxes):
-            if (IoU(box, curr_box) > iou_treshold):
-                drop_indices.append(idx)
+        for curr_idx, (curr_box, curr_conf, curr_cl, curr_crop) in enumerate(zip(boxes, confs, classes, crops)):
+            iou = IoU(box, curr_box)
+            is_first_smaller, iosa = IoSA(box, curr_box)
+            if iosa > iosa_treshold:
+                if box_crop == 3 and curr_crop == 1:
+                    box = curr_box
+                    box_conf  = curr_conf
+                    box_cl = curr_cl
+                    box_crop = curr_crop
+                elif box_crop == curr_crop:
+                    if iou < iou_treshold and iosa < 0.99:
+                        continue
+                    elif not is_first_smaller:
+                        box = curr_box
+                        box_conf  = curr_conf
+                        box_cl = curr_cl
+                        box_crop = curr_crop
+                
+                drop_indices.append(curr_idx)
 
         keep.append(box)
         confs_keep.append(box_conf)
@@ -137,14 +186,46 @@ def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa
             del boxes[index]
             del confs[index]
             del classes[index]
+            del crops[index]
 
     return keep, confs_keep, classes_keep
 
 
-def cvt_results(prob, boxes):
+def create_mask(result):
+    panoptic_seg = Image.open(io.BytesIO(result['png_string']))
+    panoptic_seg = numpy.array(panoptic_seg, dtype=numpy.uint8).copy()
+
+    panoptic_seg_id = rgb2id(panoptic_seg)
+    new_shape = panoptic_seg_id.shape
+
+    panoptic_seg = numpy.zeros(new_shape, dtype=numpy.uint8)
+    mask_list = []
+    for id in range(panoptic_seg_id.max() + 1):
+        segm_info = result['segments_info'][id]
+        if segm_info['isthing'] is True and CLASSES[segm_info['category_id']] in TRANSPORT:
+            mask_list.append(id)
+
+    mask_id_max = len(mask_list)
+    print(mask_id_max)
+    if not mask_id_max == 0:
+        mask_step = 255/(mask_id_max)
+
+    mask_id = 0
+    for id in mask_list:
+        mask_id = mask_id + mask_step
+        if mask_id > 255:
+            mask_id = 255
+        panoptic_seg[panoptic_seg_id == id] = mask_id
+
+    panoptic_seg = cv2.resize(panoptic_seg, (1280, 720))
+    return panoptic_seg
+
+
+def cvt_results(prob, boxes, crop_num):
     box_list = []
     conf_list = []
     class_list = []
+    crop_list = []
     for p, (xmin, ymin, xmax, ymax) in zip(prob, boxes.tolist()):
         cl = p.argmax()
         if (cl < 30 and CLASSES[cl] in TRANSPORT):
@@ -153,15 +234,15 @@ def cvt_results(prob, boxes):
             box_list.append(box)
             conf_list.append(conf)
             class_list.append(cl)
+            crop_list.append(crop_num)
 
-    return box_list, conf_list, class_list
+    return box_list, conf_list, class_list, crop_list
 
 
-def plot_cvt_results_to_file(frame, prob, boxes, frame_number, panoptic_segm, mask):
+def plot_cvt_results_to_file(frame, keep, confs, clas, frame_number, panoptic_segm, mask):
     yaml_writer = cv2.FileStorage("/tmp/detr_segm/labels/frame-"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
     yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
 
-    keep, confs, clas = box_filter(*cvt_results(prob, boxes))
     for box, conf, cl in zip(keep, confs, clas):        
         xmin, ymin, xmax, ymax = box
         p1 = (xmin, ymin)
@@ -189,71 +270,82 @@ def plot_cvt_results_to_file(frame, prob, boxes, frame_number, panoptic_segm, ma
     cv2.imwrite("/tmp/detr_segm/masks/frame-"+str(frame_number)+".png", mask)
     cv2.waitKey(10)
 
-device = torch.device("cuda:0") #or cpu
-#model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+#torch.set_num_interop_threads()
+device = torch.device("cpu") #or cpu
+#model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.7)
 model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet50_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
 model.to(device)
 model.eval()
 
-frame_number = 6250
+#top_left1 = (495, 0)
+#crop_size1 = (280, 125)
+
+top_left1 = (490, 20)
+crop_size1 = (295, 150)
+bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
+
+frame_number = 6255
 while True:
     frame_cv = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
-    im = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
     if frame_cv is None:
         frame_number += 1
         continue
+    frame_cropped_1 = frame_cv[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
+    #cv2.imshow('qwd', frame_cropped_1)
 
-    img = transform(im).unsqueeze(0).to(device)
-    out = model(img)
+    im_3 = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
+    im_1 = Image.fromarray(cv2.cvtColor(frame_cropped_1, cv2.COLOR_BGR2RGB))
 
-    probas = out['pred_logits'].softmax(-1)[0, :, :-1]
-    keep = probas.max(-1).values > 0.7
-    confs = probas[keep].max(-1).values
+    torch.cuda.empty_cache()
 
-    bboxes_scaled = rescale_bboxes(out['pred_boxes'][0, keep], im.size)
-    #plot_results(frame_cv, probas[keep], bboxes_scaled)
+    img_1 = transform(im_1).unsqueeze(0).to(device)
+    out_1 = model(img_1)
+    probas_1 = out_1['pred_logits'].softmax(-1)[0, :, :-1]
+    keep_1 = probas_1.max(-1).values > 0.9
+    confs_1 = probas_1[keep_1].max(-1).values
+    bboxes_scaled_1 = rescale_bboxes(out_1['pred_boxes'][0, keep_1], im_1.size) + torch.tensor([top_left1[0], top_left1[1], top_left1[0], top_left1[1]], dtype=torch.float32, device=device)
+    box_list_1, conf_list_1, class_list_1, crop_list_1 = cvt_results(probas_1[keep_1], bboxes_scaled_1, 1)
+    #print(box_list_1)
 
-    result = postprocessor(out, torch.as_tensor(img.shape[-2:]).unsqueeze(0))[0]
+    del img_1
+    del out_1
+    del probas_1
+    del bboxes_scaled_1
+    torch.cuda.empty_cache()
 
-    panoptic_seg = Image.open(io.BytesIO(result['png_string']))
-    panoptic_seg = numpy.array(panoptic_seg, dtype=numpy.uint8).copy()
+    img_3 = transform(im_3).unsqueeze(0).to(device)
+    out_3 = model(img_3)
+    probas_3 = out_3['pred_logits'].softmax(-1)[0, :, :-1]
+    keep_3 = probas_3.max(-1).values > 0.5
+    confs_3 = probas_3[keep_3].max(-1).values
+    bboxes_scaled_3 = rescale_bboxes(out_3['pred_boxes'][0, keep_3], im_3.size)
 
-    panoptic_seg_id = rgb2id(panoptic_seg)
-    new_shape = panoptic_seg_id.shape
+    result = postprocessor(out_3, torch.as_tensor(img_3.shape[-2:]).unsqueeze(0))[0]
+    panoptic_seg = create_mask(result)
 
-    panoptic_seg = numpy.zeros(new_shape, dtype=numpy.uint8)
-    mask_list = []
-    for id in range(panoptic_seg_id.max() + 1):
-        segm_info = result['segments_info'][id]
-        if segm_info['isthing'] is True and CLASSES[segm_info['category_id']] in TRANSPORT:
-            mask_list.append(id)
+    box_list_3, conf_list_3, class_list_3, crop_list_3 = cvt_results(probas_3[keep_3], bboxes_scaled_3, 3)
 
-    mask_id_max = len(mask_list)
-    print(mask_id_max)
-    if not mask_id_max == 0:
-        mask_step = 255/(mask_id_max)
-    mask_id = 0
-    for id in mask_list:
-        mask_id = mask_id + mask_step
-        if mask_id > 255:
-            mask_id = 255
-        panoptic_seg[panoptic_seg_id == id] = mask_id
+    box_list = box_list_3 + box_list_1
+    conf_list = conf_list_3 + conf_list_1
+    class_list = class_list_3 + class_list_1
+    crop_list = crop_list_3 + crop_list_1
 
-
-    panoptic_seg = cv2.resize(panoptic_seg, (1280, 720))
     mask_cv = cv2.cvtColor(panoptic_seg, cv2.COLOR_GRAY2BGR)
+    box_keep, confs_keep, class_keep = box_filter(box_list, conf_list, class_list, crop_list)
+    plot_cvt_results_to_file(frame_cv, box_keep, confs_keep, class_keep, frame_number, panoptic_seg, mask_cv)
 
-    plot_cvt_results_to_file(frame_cv, probas[keep], bboxes_scaled, frame_number, panoptic_seg, mask_cv)
     output_frame = cv2.addWeighted(frame_cv, 0.45, mask_cv, 0.55, 0.0)
     #output_frame = mask_cv
-
-    frame_number += 1
     cv2.imshow('qwe', output_frame)
     #cv2.imwrite('/tmp/detr_segm.png', output_frame)
-    del img
-    del out
-    del bboxes_scaled
+
+    del img_3
+    del out_3
+    del probas_3
+    del bboxes_scaled_3
     torch.cuda.empty_cache()
+
+    frame_number += 1
     cv2.waitKey(30)
 
 #nearest neighbour, чтобы не придумывал новые значения!!!
