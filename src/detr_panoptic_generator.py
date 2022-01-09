@@ -1,4 +1,5 @@
 import math
+from shutil import move
 
 from PIL import Image
 import requests
@@ -11,6 +12,7 @@ import cv2
 
 import torch
 from torch import nn
+from torch._C import device
 from torchvision.models import resnet50
 import torchvision.transforms as T
 torch.set_grad_enabled(False)
@@ -76,7 +78,7 @@ def box_cxcywh_to_xyxy(x):
 def rescale_bboxes(out_bbox, size):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
-    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
+    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32, device=device)
     return b
 
 
@@ -187,20 +189,21 @@ def plot_cvt_results_to_file(frame, prob, boxes, frame_number, panoptic_segm, ma
     cv2.imwrite("/tmp/detr_segm/masks/frame-"+str(frame_number)+".png", mask)
     cv2.waitKey(10)
 
-
-model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+device = torch.device("cuda:0") #or cpu
+#model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet50_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+model.to(device)
 model.eval()
 
 frame_number = 6250
 while True:
     frame_cv = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
-    #im = Image.open("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
     im = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
     if frame_cv is None:
         frame_number += 1
         continue
 
-    img = transform(im).unsqueeze(0)
+    img = transform(im).unsqueeze(0).to(device)
     out = model(img)
 
     probas = out['pred_logits'].softmax(-1)[0, :, :-1]
@@ -247,6 +250,10 @@ while True:
     frame_number += 1
     cv2.imshow('qwe', output_frame)
     #cv2.imwrite('/tmp/detr_segm.png', output_frame)
+    del img
+    del out
+    del bboxes_scaled
+    torch.cuda.empty_cache()
     cv2.waitKey(30)
 
 #nearest neighbour, чтобы не придумывал новые значения!!!

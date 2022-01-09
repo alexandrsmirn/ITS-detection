@@ -11,6 +11,8 @@ import cv2
 
 import torch
 from torch import nn
+from torch._C import device
+from torchvision import models
 from torchvision.models import resnet50
 import torchvision.transforms as T
 torch.set_grad_enabled(False)
@@ -76,7 +78,7 @@ def box_cxcywh_to_xyxy(x):
 def rescale_bboxes(out_bbox, size):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
-    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
+    b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32, device=device)
     return b
 
 def box_filter(boxes, confs, classes, iou_treshold=0.3): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
@@ -234,17 +236,20 @@ def plot_results_to_file(frame, prob, boxes, panoptic_segm):
     cv2.imshow('qwe', frame)
     cv2.waitKey(10)
 
-model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.4)
+device = torch.device("cuda:0")
+#model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet50_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
+model.to(device)
 model.eval()
 
-im = Image.open("/home/alex/prog/cv/crop_experiment/foo-21816.png")
-frame_cv = cv2.imread("/home/alex/prog/cv/crop_experiment/foo-21816.png")
-img = transform(im).unsqueeze(0)
+frame_cv = cv2.imread("/home/alex/prog/cv/crop_experiment/frame.png")
+im = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
+img = transform(im).unsqueeze(0).to(device)
 out = model(img)
 
 # keep only predictions with 0.7+ confidence
 probas = out['pred_logits'].softmax(-1)[0, :, :-1]
-keep = probas.max(-1).values > 0.5
+keep = probas.max(-1).values > 0.7
 confs = probas[keep].max(-1).values
 
 # convert boxes from [0; 1] to image scales
@@ -289,7 +294,7 @@ panoptic_seg = cv2.resize(panoptic_seg, (1280, 720))
 mask_cv = cv2.cvtColor(panoptic_seg, cv2.COLOR_GRAY2BGR)
 
 plot_cvt_results_to_file(frame_cv, probas[keep], bboxes_scaled, panoptic_seg)
-output_frame = cv2.addWeighted(frame_cv, 0.45, mask_cv, 0.55, 0.0)
+output_frame = cv2.addWeighted(frame_cv, 0.55, mask_cv, 0.45, 0.0)
 #output_frame = mask_cv
 
 cv2.imshow('qwe', output_frame)
@@ -298,3 +303,4 @@ cv2.waitKey(0)
 
 #nearest neighbour, чтобы не придумывал новые значения!!!
 #спросить про ситуацию, когда бокс не детектится, а маска генерится. интересен ли нам такой случай???
+#другая идея: убирать боксы у которых id нулевой
