@@ -136,10 +136,6 @@ def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=
                 abs(box.rect[1] - top_left1[1]) < eps or \
                 abs(box.rect[2] - bot_right1[0]) < eps or \
                 abs(box.rect[3] - bot_right1[1]) < eps
-        #elif box_crop == 2:
-        #    return abs(box[0] - top_left2[0]) < eps or \
-        #        abs(box[2] - bot_right2[0]) < eps or \
-        #        abs(box[3] - bot_right2[1]) < eps
 
     def is_in_first_crop(box):
         return  box.rect[0] > top_left1[0] and \
@@ -147,8 +143,10 @@ def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=
                 box.rect[2] < bot_right1[0] and \
                 box.rect[3] < bot_right1[1]
     
+    #we have  a list of boxes which belongs to some segment
     keep = []
-    panoptic_seg_keep = numpy.zeros((720, 1280), dtype=numpy.uint8)
+    keep_idx = 1
+    panoptic_seg_keep = numpy.zeros(panoptic_segm_3.shape, dtype=numpy.uint8)
     while (not len(boxes) == 0):
         #choose the box with the highest confidence
         max_conf = 0
@@ -182,24 +180,29 @@ def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=
                 
                 drop_indices.append(curr_idx)
 
-        keep.append(box)
+        #now we have one box to keep and the list of boxes to delete
+        #so we change their masks to the mask of that kept box
         if box.crop == 1:
-            panoptic_seg_keep[panoptic_segm_1 == box.inst_id] = box.inst_id
+            panoptic_seg_keep[panoptic_segm_1 == box.inst_id] = keep_idx
         else:
-            panoptic_seg_keep[panoptic_segm_3 == box.inst_id] = box.inst_id
+            panoptic_seg_keep[panoptic_segm_3 == box.inst_id] = keep_idx
         
         for index in sorted(drop_indices, reverse=True):
             if boxes[index].crop == 1:
-                panoptic_seg_keep[panoptic_segm_1 == boxes[index].inst_id] = box.inst_id
+                panoptic_seg_keep[panoptic_segm_1 == boxes[index].inst_id] = keep_idx
             else:
-                panoptic_seg_keep[panoptic_segm_3 == boxes[index].inst_id] = box.inst_id
+                panoptic_seg_keep[panoptic_segm_3 == boxes[index].inst_id] = keep_idx
 
             del boxes[index]
+
+        box.inst_id = keep_idx
+        keep_idx += 1
+        keep.append(box)
 
     return keep, panoptic_seg_keep
 
 
-def create_mask(result, shape):
+def create_seg(result, shape):
     panoptic_seg = Image.open(io.BytesIO(result['png_string']))
     panoptic_seg = numpy.array(panoptic_seg, dtype=numpy.uint8).copy()
 
@@ -209,16 +212,15 @@ def create_mask(result, shape):
     panoptic_seg = numpy.zeros(new_shape, dtype=numpy.uint8)
     mask_list = []
     max_idx = panoptic_seg_id.max()
-    if not max_idx == 0:
+    if max_idx != 0:
         for id in range(max_idx + 1):
             segm_info = result['segments_info'][id]
             if segm_info['isthing'] is True and CLASSES[segm_info['category_id']] in TRANSPORT:
                 mask_list.append(id)
 
     mask_id_max = len(mask_list)
-    #print(mask_id_max)
-    if not mask_id_max == 0:
-        mask_step = 255/(mask_id_max)
+    if mask_id_max != 0:
+        mask_step = 1
 
     mask_id = 0
     for id in mask_list:
@@ -227,8 +229,33 @@ def create_mask(result, shape):
             mask_id = 255
         panoptic_seg[panoptic_seg_id == id] = mask_id
 
-    panoptic_seg = cv2.resize(panoptic_seg, shape)
-    return panoptic_seg
+    panoptic_seg = cv2.resize(panoptic_seg, shape, interpolation=cv2.INTER_NEAREST)
+    return panoptic_seg, mask_id_max
+
+
+def update_mask(boxes: list[Box], panoptic_seg_id):
+    mask_id_max = len(boxes)
+    print(mask_id_max)
+
+    if mask_id_max != 0:
+        mask_step = int(255/(mask_id_max))
+
+    panoptic_seg = numpy.zeros(panoptic_seg_id.shape, dtype=numpy.uint8)
+    mask_id = 0
+    for id in range(1, mask_id_max + 1):
+        mask_id = mask_id + mask_step
+        if mask_id > 255:
+            mask_id = 255
+        panoptic_seg[panoptic_seg_id == id] = mask_id
+
+    for box in boxes:
+        old = box.inst_id
+        scaled = old * mask_step
+        if (scaled > 255):
+            scaled = 255
+        box.inst_id = scaled
+
+    return boxes, panoptic_seg
 
 
 def cvt_results(prob, boxes, crop_num, panoptic_segm):
@@ -254,7 +281,7 @@ def cvt_results(prob, boxes, crop_num, panoptic_segm):
 def plot_cvt_results_to_file(frame, keep, frame_number, mask):
     yaml_writer = cv2.FileStorage("/tmp/detr_segm/labels/frame-"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
 
-    is_mask_bad = not (mask[0, 0] == numpy.asarray((0, 0, 0))).all()
+    is_mask_bad = (mask[0, 0] != numpy.asarray((0, 0, 0))).all() or (mask[top_left1[1] + 1, top_left1[0] + 1] != numpy.asarray((0, 0, 0))).all()
     yaml_writer.write("bad_mask", str(is_mask_bad))
 
     yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
@@ -281,7 +308,7 @@ def plot_cvt_results_to_file(frame, keep, frame_number, mask):
     cv2.waitKey(10)
 
 device = torch.device("cpu") #or cpu
-model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.7)
+model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
 #model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet50_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.7)
 model.to(device)
 model.eval()
@@ -293,8 +320,8 @@ top_left1 = (490, 20)
 crop_size1 = (295, 150)
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
 
-#frame_number = 6255
-frame_number = 6431
+frame_number = 6255
+#frame_number = 6391
 while True:
     frame_cv = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
     if frame_cv is None:
@@ -312,12 +339,12 @@ while True:
     img_1 = transform(im_1).unsqueeze(0).to(device)
     out_1 = model(img_1)
     probas_1 = out_1['pred_logits'].softmax(-1)[0, :, :-1]
-    keep_1 = probas_1.max(-1).values > 0.9 #0.85
+    keep_1 = probas_1.max(-1).values > 0.85 #0.9
     confs_1 = probas_1[keep_1].max(-1).values
     bboxes_scaled_1 = rescale_bboxes(out_1['pred_boxes'][0, keep_1], im_1.size) + torch.tensor([top_left1[0], top_left1[1], top_left1[0], top_left1[1]], dtype=torch.float32, device=device)
 
     result_1 = postprocessor(out_1, torch.as_tensor(img_1.shape[-2:]).unsqueeze(0))[0]
-    panoptic_seg_1 = create_mask(result_1, crop_size1)
+    panoptic_seg_1, max_id_1 = create_seg(result_1, crop_size1)
     panoptic_seg_1_scaled = numpy.zeros((720, 1280), dtype=numpy.uint8)
     panoptic_seg_1_scaled[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]] = panoptic_seg_1
     box_list_1 = cvt_results(probas_1[keep_1], bboxes_scaled_1, 1, panoptic_seg_1_scaled)
@@ -336,23 +363,21 @@ while True:
     bboxes_scaled_3 = rescale_bboxes(out_3['pred_boxes'][0, keep_3], im_3.size)
 
     result_3 = postprocessor(out_3, torch.as_tensor(img_3.shape[-2:]).unsqueeze(0))[0]
-    panoptic_seg_3 = create_mask(result_3, (1280, 720))
+    panoptic_seg_3, max_id_3 = create_seg(result_3, (1280, 720))
+    panoptic_seg_3[panoptic_seg_3 != 0] += numpy.array(max_id_1, dtype=numpy.uint8)
     box_list_3 = cvt_results(probas_3[keep_3], bboxes_scaled_3, 3, panoptic_seg_3)
 
     box_list = box_list_3 + box_list_1
 
-    #TODO check
-    #panoptic_seg_merged = panoptic_seg_3.copy()
-    #panoptic_seg_merged[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]] = panoptic_seg_1
-
     box_keep, panoptic_keep = box_filter(box_list, panoptic_seg_1_scaled, panoptic_seg_3)
-    mask_cv = cv2.cvtColor(panoptic_keep, cv2.COLOR_GRAY2BGR)
+    box_keep, mask_cv = update_mask(box_keep, panoptic_keep)
+    mask_cv = cv2.cvtColor(mask_cv, cv2.COLOR_GRAY2BGR)
     plot_cvt_results_to_file(frame_cv, box_keep, frame_number, mask_cv)
 
     output_frame = cv2.addWeighted(frame_cv, 0.45, mask_cv, 0.55, 0.0)
     #output_frame = mask_cv
     #cv2.imshow('qwe', output_frame)
-    cv2.imwrite("/tmp/detr_segm/demos/frame-"+str(frame_number)+".jpg", output_frame)
+    cv2.imwrite("/tmp/detr_segm/demos/frame-"+str(frame_number)+".png", output_frame)
     #cv2.imwrite('/tmp/detr_segm.png', output_frame)
 
     del img_3
