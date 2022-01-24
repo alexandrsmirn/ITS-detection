@@ -278,7 +278,7 @@ def cvt_results(prob, boxes, crop_num, panoptic_segm):
     return box_list
 
 
-def plot_cvt_results_to_file(frame, keep, frame_number, mask):
+def plot_cvt_results_to_file(frame, keep, frame_number, mask, last_box_id):
     yaml_writer = cv2.FileStorage("/tmp/detr_segm/labels/frame-"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
 
     is_mask_bad = (mask[0, 0] != numpy.asarray((0, 0, 0))).all() or (mask[top_left1[1] + 1, top_left1[0] + 1] != numpy.asarray((0, 0, 0))).all()
@@ -293,6 +293,7 @@ def plot_cvt_results_to_file(frame, keep, frame_number, mask):
         cv2.rectangle(frame, p1, p2, (0, 255, 0))
         yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
         yaml_writer.write("instance_id", box.inst_id)
+        yaml_writer.write("id", last_box_id)
         yaml_writer.write("conf", box.conf)
         yaml_writer.write("class", CLASSES[box.cls])
         yaml_writer.write("x_min", xmin)
@@ -301,11 +302,15 @@ def plot_cvt_results_to_file(frame, keep, frame_number, mask):
         yaml_writer.write("y_max", ymax)
         yaml_writer.endWriteStruct()
 
+        last_box_id += 1
+
     yaml_writer.endWriteStruct()
     yaml_writer.release()
-    cv2.imwrite("/tmp/detr_segm/frames/frame-"+str(frame_number)+".png", frame)
+    cv2.imwrite("/tmp/detr_segm/frames/frame-"+str(frame_number)+".jpg", frame)
     cv2.imwrite("/tmp/detr_segm/masks/frame-"+str(frame_number)+".png", mask)
     cv2.waitKey(10)
+
+    return last_box_id
 
 device = torch.device("cpu") #or cpu
 model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
@@ -320,8 +325,10 @@ top_left1 = (490, 20)
 crop_size1 = (295, 150)
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
 
-frame_number = 6255
+#frame_number = 6255
 #frame_number = 6391
+frame_number = 6237
+last_box_id = 0
 while True:
     frame_cv = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
     if frame_cv is None:
@@ -334,7 +341,7 @@ while True:
     im_3 = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
     im_1 = Image.fromarray(cv2.cvtColor(frame_cropped_1, cv2.COLOR_BGR2RGB))
 
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
 
     img_1 = transform(im_1).unsqueeze(0).to(device)
     out_1 = model(img_1)
@@ -353,7 +360,7 @@ while True:
     del out_1
     del probas_1
     del bboxes_scaled_1
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
 
     img_3 = transform(im_3).unsqueeze(0).to(device)
     out_3 = model(img_3)
@@ -372,22 +379,22 @@ while True:
     box_keep, panoptic_keep = box_filter(box_list, panoptic_seg_1_scaled, panoptic_seg_3)
     box_keep, mask_cv = update_mask(box_keep, panoptic_keep)
     mask_cv = cv2.cvtColor(mask_cv, cv2.COLOR_GRAY2BGR)
-    plot_cvt_results_to_file(frame_cv, box_keep, frame_number, mask_cv)
+    last_box_id = plot_cvt_results_to_file(frame_cv, box_keep, frame_number, mask_cv, last_box_id)
 
-    output_frame = cv2.addWeighted(frame_cv, 0.45, mask_cv, 0.55, 0.0)
+    #output_frame = cv2.addWeighted(frame_cv, 0.45, mask_cv, 0.55, 0.0)
     #output_frame = mask_cv
     #cv2.imshow('qwe', output_frame)
-    cv2.imwrite("/tmp/detr_segm/demos/frame-"+str(frame_number)+".png", output_frame)
+    #cv2.imwrite("/tmp/detr_segm/demos/frame-"+str(frame_number)+".png", output_frame)
     #cv2.imwrite('/tmp/detr_segm.png', output_frame)
 
-    del img_3
-    del out_3
-    del probas_3
-    del bboxes_scaled_3
-    torch.cuda.empty_cache()
+    #del img_3
+    #del out_3
+    #del probas_3
+    #del bboxes_scaled_3
+    #torch.cuda.empty_cache()
 
     frame_number += 1
-    cv2.waitKey(30)
+    #cv2.waitKey(30)
 
 #nearest neighbour, чтобы не придумывал новые значения!!!
 #спросить про ситуацию, когда бокс не детектится, а маска генерится. интересен ли нам такой случай???
