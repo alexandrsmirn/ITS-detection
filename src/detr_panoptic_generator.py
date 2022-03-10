@@ -1,21 +1,16 @@
 import math
-from shutil import move
-
 from PIL import Image
-import requests
-import matplotlib.pyplot as plt
-#%config InlineBackend.figure_format = 'retina'
-
-#import ipywidgets as widgets
-#from IPython.display import display, clear_output
 import cv2
 
 import torch
-from torch import nn
 from torch._C import device
 from torchvision.models import resnet50
 import torchvision.transforms as T
 torch.set_grad_enabled(False)
+
+import io
+import numpy
+from panopticapi.utils import id2rgb, rgb2id
 
 # COCO classes
 CLASSES = [
@@ -48,27 +43,6 @@ transform = T.Compose([
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-from PIL import Image
-import cv2
-import requests
-import io
-import math
-import matplotlib.pyplot as plt
-
-import itertools
-import seaborn as sns
-
-import torch
-from torch import nn
-import torchvision.transforms as T
-import numpy
-
-#from yolov5.models.tf import parse_model
-torch.set_grad_enabled(False)
-
-import panopticapi
-from panopticapi.utils import id2rgb, rgb2id
-
 def box_cxcywh_to_xyxy(x):
     x_c, y_c, w, h = x.unbind(1)
     b = [(x_c - 0.5 * w), (y_c - 0.5 * h),
@@ -89,7 +63,7 @@ class Box:
         self.crop = crop
         self.inst_id = inst_id
 
-def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
+def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=0.3, iosa_treshold=0.4):
     def IoU(box1, box2):
         a1x, a1y, b1x, b1y = box1.rect
         a2x, a2y, b2x, b2y = box2.rect
@@ -171,7 +145,11 @@ def box_filter(boxes: list[Box], panoptic_segm_1, panoptic_segm_3, iou_treshold=
             is_first_smaller, iosa = IoSA(box, curr_box)
             if iosa > iosa_treshold:
                 if box.crop == 3 and curr_box.crop == 1:
-                    box = curr_box
+                    if not is_on_border(curr_box, 5):
+                        box = curr_box
+                elif box.crop == 1 and curr_box.crop == 3:
+                    if is_on_border(box, 5):
+                        box = curr_box
                 elif box.crop == curr_box.crop:
                     if iou < iou_treshold and iosa < 0.99:
                         continue
@@ -281,7 +259,8 @@ def cvt_results(prob, boxes, crop_num, panoptic_segm):
 def plot_cvt_results_to_file(frame, keep, frame_number, mask, last_box_id):
     yaml_writer = cv2.FileStorage("/tmp/detr_segm/labels/frame-"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
 
-    is_mask_bad = (mask[0, 0] != numpy.asarray((0, 0, 0))).all() or (mask[top_left1[1] + 1, top_left1[0] + 1] != numpy.asarray((0, 0, 0))).all()
+    is_mask_bad = (mask[0, 0] != numpy.asarray((0, 0, 0))).all() or \
+                  (mask[top_left1[1] + 1, top_left1[0] + 1] != numpy.asarray((0, 0, 0))).all()
     yaml_writer.write("bad_mask", str(is_mask_bad))
 
     yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
@@ -312,34 +291,30 @@ def plot_cvt_results_to_file(frame, keep, frame_number, mask, last_box_id):
 
     return last_box_id
 
-device = torch.device("cpu") #or cpu
+device = torch.device("cpu") #or cuda
 model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet101_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.6)
 #model, postprocessor = torch.hub.load('facebookresearch/detr', 'detr_resnet50_panoptic', pretrained=True, return_postprocessor=True, num_classes=250, threshold=0.7)
 model.to(device)
 model.eval()
 
-#top_left1 = (495, 0)
-#crop_size1 = (280, 125)
-
 top_left1 = (490, 20)
 crop_size1 = (295, 150)
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
 
-#frame_number = 6255
-#frame_number = 6391
 frame_number = 6237
 last_box_id = 0
+path_to_frames = "../from_0_camera/"
 while True:
-    frame_cv = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-" + str(frame_number) + ".png")
+    frame_cv = cv2.imread(path_to_frames + "frame-" + str(frame_number) + ".png")
     if frame_cv is None:
         frame_number += 1
         print(f'Missing frame {frame_number}')
         continue
-    frame_cropped_1 = frame_cv[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
-    #cv2.imshow('qwd', frame_cropped_1)
 
-    im_3 = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))
-    im_1 = Image.fromarray(cv2.cvtColor(frame_cropped_1, cv2.COLOR_BGR2RGB))
+    frame_cropped_1 = frame_cv[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
+
+    im_3 = Image.fromarray(cv2.cvtColor(frame_cv, cv2.COLOR_BGR2RGB))           #full image
+    im_1 = Image.fromarray(cv2.cvtColor(frame_cropped_1, cv2.COLOR_BGR2RGB))    #cropped image
 
     #torch.cuda.empty_cache()
 
@@ -348,7 +323,8 @@ while True:
     probas_1 = out_1['pred_logits'].softmax(-1)[0, :, :-1]
     keep_1 = probas_1.max(-1).values > 0.85 #0.9
     confs_1 = probas_1[keep_1].max(-1).values
-    bboxes_scaled_1 = rescale_bboxes(out_1['pred_boxes'][0, keep_1], im_1.size) + torch.tensor([top_left1[0], top_left1[1], top_left1[0], top_left1[1]], dtype=torch.float32, device=device)
+    bboxes_scaled_1 = rescale_bboxes(out_1['pred_boxes'][0, keep_1], im_1.size) +\
+                        torch.tensor([top_left1[0], top_left1[1], top_left1[0], top_left1[1]], dtype=torch.float32, device=device)
 
     result_1 = postprocessor(out_1, torch.as_tensor(img_1.shape[-2:]).unsqueeze(0))[0]
     panoptic_seg_1, max_id_1 = create_seg(result_1, crop_size1)
@@ -376,8 +352,8 @@ while True:
 
     box_list = box_list_3 + box_list_1
 
-    box_keep, panoptic_keep = box_filter(box_list, panoptic_seg_1_scaled, panoptic_seg_3)
-    box_keep, mask_cv = update_mask(box_keep, panoptic_keep)
+    box_keep, panoptic_keep = box_filter(box_list, panoptic_seg_1_scaled, panoptic_seg_3)   #remove boxes that intersects and keep the most suitable, also filtees the mask
+    box_keep, mask_cv = update_mask(box_keep, panoptic_keep)                                #convert mask into a more visual format
     mask_cv = cv2.cvtColor(mask_cv, cv2.COLOR_GRAY2BGR)
     last_box_id = plot_cvt_results_to_file(frame_cv, box_keep, frame_number, mask_cv, last_box_id)
 
@@ -387,14 +363,11 @@ while True:
     #cv2.imwrite("/tmp/detr_segm/demos/frame-"+str(frame_number)+".png", output_frame)
     #cv2.imwrite('/tmp/detr_segm.png', output_frame)
 
-    #del img_3
-    #del out_3
-    #del probas_3
-    #del bboxes_scaled_3
+    del img_3
+    del out_3
+    del probas_3
+    del bboxes_scaled_3
     #torch.cuda.empty_cache()
 
     frame_number += 1
     #cv2.waitKey(30)
-
-#nearest neighbour, чтобы не придумывал новые значения!!!
-#спросить про ситуацию, когда бокс не детектится, а маска генерится. интересен ли нам такой случай???
