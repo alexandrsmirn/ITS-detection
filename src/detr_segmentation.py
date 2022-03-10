@@ -86,11 +86,11 @@ def rescale_bboxes(out_bbox, size):
     #print(b)
     return b
 
-def rescale_bboxes_cropped(out_bbox, size, bottom_left):
+def rescale_bboxes_cropped(out_bbox, size, top_left):
     img_w, img_h = size
     b = box_cxcywh_to_xyxy(out_bbox)
     b = b * torch.tensor([img_w, img_h, img_w, img_h], dtype=torch.float32)
-    b = b + torch.tensor([bottom_left[0], bottom_left[1], bottom_left[0], bottom_left[1]], dtype=torch.float32)
+    b = b + torch.tensor([top_left[0], top_left[1], top_left[0], top_left[1]], dtype=torch.float32)
     #print(b)
     return b
 
@@ -103,8 +103,8 @@ width  = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))   # float `width`
 height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))  # float `height`
 
 def plot_results(frame, prob, boxes, frame_number):
-    yaml_writer = cv2.FileStorage("../segmentation_results/detr/labels/frame"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
-    yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
+    #yaml_writer = cv2.FileStorage("../segmentation_results/detr/labels/frame"+str(frame_number)+".yml", cv2.FileStorage_WRITE | cv2.FileStorage_FORMAT_YAML)
+    #yaml_writer.startWriteStruct("boxes", cv2.FileNode_SEQ)
 
     colors = COLORS * 100
     for p, (xmin, ymin, xmax, ymax), c in zip(prob, boxes.tolist(), colors):
@@ -113,23 +113,25 @@ def plot_results(frame, prob, boxes, frame_number):
             p1 = (int(xmin), int(ymin))
             p2 = (int(xmax), int(ymax))
             cv2.rectangle(frame, p1, p2, (0, 255, 0))
-            yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
-            yaml_writer.write("class", CLASSES[cl])
-            yaml_writer.write("x_min", p1[0])
-            yaml_writer.write("y_min", p1[1])
-            yaml_writer.write("x_max", p2[0])
-            yaml_writer.write("y_max", p2[1])
-            yaml_writer.endWriteStruct()
+            #yaml_writer.startWriteStruct("", cv2.FileNode_MAP)
+            #yaml_writer.write("class", CLASSES[cl])
+            #yaml_writer.write("x_min", p1[0])
+            #yaml_writer.write("y_min", p1[1])
+            #yaml_writer.write("x_max", p2[0])
+            #yaml_writer.write("y_max", p2[1])
+            #yaml_writer.endWriteStruct()
             #cv2.putText(frame, CLASSES[cl], p1, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0))
         
         #text = f'{CLASSES[cl]}: {p[cl]:0.2f}'
         #ax.text(xmin, ymin, text, fontsize=15,
         #        bbox=dict(facecolor='yellow', alpha=0.5))
-    yaml_writer.endWriteStruct()
-    yaml_writer.release()
+    #yaml_writer.endWriteStruct()
+    #yaml_writer.release()
+    cv2.imshow('qwe', frame)
+    cv2.waitKey(10)
     cv2.imwrite("../segmentation_results/detr/frames/frame"+str(frame_number)+".png", frame)
 
-model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
+model = torch.hub.load('facebookresearch/detr', 'detr_resnet101', pretrained=True)
 model.eval()
 
 frame_number = 0

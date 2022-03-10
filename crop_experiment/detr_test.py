@@ -84,14 +84,15 @@ def plot_results(frame, prob, boxes):
             cv2.rectangle(frame, p1, p2, (0, 255, 0))
             #cv2.putText(frame, CLASSES[cl], p1, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0))
         
-    cv2.imwrite("results/detr/result.png", frame)
+    #cv2.imwrite("results/detr/result.png", frame)
+    cv2.imwrite("/tmp/segmentation_results/detr/frames/qwe.png", frame)
 
-model = torch.hub.load('facebookresearch/detr', 'detr_resnet50', pretrained=True)
+model = torch.hub.load('facebookresearch/detr', 'detr_resnet101', pretrained=True)
 model.eval();
 
 #url = "http://images.cocodataset.org/val2017/000000281759.jpg"
-frame = cv2.imread("/home/alex/prog/cv/crop_experiment/cropped.png")
-im = Image.open("/home/alex/prog/cv/crop_experiment/cropped.png")
+frame = cv2.imread("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-6244.png")
+im = Image.open("/home/alex/prog/cv/prepared_datasets/Carla-final/from_0_camera/frame-6244.png")
 
 # mean-std normalize the input image (batch-size: 1)
 img = transform(im).unsqueeze(0)
@@ -102,7 +103,7 @@ outputs = model(img)
 
 # keep only predictions with 0.7+ confidence
 probas = outputs['pred_logits'].softmax(-1)[0, :, :-1]
-keep = probas.max(-1).values > 0.6
+keep = probas.max(-1).values > 0.7
 
 # convert boxes from [0; 1] to image scales
 bboxes_scaled = rescale_bboxes(outputs['pred_boxes'][0, keep], im.size)
