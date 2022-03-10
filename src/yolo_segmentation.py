@@ -49,12 +49,12 @@ def fill_holes(mask):
     mask_floodfill = mask.copy()
     h, w = mask.shape[:2]
     mask2 = np.zeros((h+2, w+2), np.uint8)
-    cv2.floodFill(mask_floodfill, mask2, (0,100), 255) #временно поменяли координату от которой заполняем
+    cv2.floodFill(mask_floodfill, mask2, (0,100), 255)
     mask_floodfill_inv = cv2.bitwise_not(mask_floodfill)
 
     return mask | mask_floodfill_inv
 
-def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4): #iou_treshold=0.5, iosa_treshold=0.8, iou_frist=True, select_bigger=False
+def box_filter(results, iou_treshold=0.3, iosa_treshold=0.4):
     def IoU(box1, box2):
         a1, b1 = box1
         a2, b2 = box2
@@ -231,11 +231,10 @@ def write_boxes(results, frame, frame_number, last_box_id):
 def show_boxes(results, frame, frame_number):
     frame_name = 'frame_' + str(frame_number)
 
-    #boxes = box_filter(results, 0.7, 0.4) !!!!!!!good
     boxes, _, _ = box_filter(results)
 
     for box in boxes:
-        xmin = box[0][0] #returns integer
+        xmin = box[0][0]
         ymin = box[0][1] 
         xmax = box[1][0] 
         ymax = box[1][1]
@@ -247,11 +246,9 @@ def show_boxes(results, frame, frame_number):
     return frame
 
 
-#backSub = cv2.createBackgroundSubtractorMOG2()
 backSub = cv2.createBackgroundSubtractorKNN()
 backSub.setHistory(3000)
 backSub.setShadowValue(0)
-#backSub.setShadowThreshold(0.05)
 
 
 def write_mask(frame, frame_number):
@@ -270,7 +267,6 @@ fourcc = cv2.VideoWriter_fourcc(*'MJPG')
 
 #video_writer = cv2.VideoWriter("../prepared_datasets/demo_carla.mp4", fourcc, fps, (width, height))
 
-# Model
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
 #model = torch.hub.load('ultralytics/yolov5', 'yolov5n6')
 
@@ -278,30 +274,26 @@ model.classes = [1, 2, 3, 5, 7]
 
 #top_left1 = (515, 0) ##for cam_0
 #crop_size1 = (250, 125)
+#top_left2 = (255, 50)
+#crop_size2 = (800, 480)
 
 top_left1 = (495, 0)
 crop_size1 = (285, 125)
-
 bot_right1 = (top_left1[0] + crop_size1[0], top_left1[1] + crop_size1[1])
-
-#top_left2 = (255, 50)
-#crop_size2 = (800, 480)
 
 top_left2 = (230, 50)
 crop_size2 = (870, 480)
 bot_right2 = (top_left2[0] + crop_size2[0], top_left2[1] + crop_size2[1])
 
 frame_number = 6237
-#frame_number = 7100
-#frame_number = 6800
 last_box_id = 0
 while True:
     frame = cv2.imread('../prepared_datasets/Carla-final/from_2_camera/frame-' + str(frame_number) + '.png')
     #ret, frame = capture.read()
     if frame is None:
+        print(f'missing frame {frame_number}')
         frame_number += 1
         continue
-        #break
     
     frame_cropped1 = frame[top_left1[1] : top_left1[1] + crop_size1[1], top_left1[0] : top_left1[0] + crop_size1[0]]
     frame_cropped2 = frame[top_left2[1] : top_left2[1] + crop_size2[1], top_left2[0] : top_left2[0] + crop_size2[0]]
@@ -335,8 +327,6 @@ while True:
     frame, last_box_id = write_boxes(outputs, frame, frame_number, last_box_id)
     #frame = show_boxes(outputs, frame, frame_number)
 
-    #mask = threading.Thread(target=write_mask, args=(frame, frame_number))
-    
     if (args.demo):
         mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
         output_frame = cv2.addWeighted(frame, 0.6, mask_bgr, 0.4, 0.0)
